@@ -138,6 +138,40 @@
   }
   .hint.hidden{ opacity: 0; }
 
+  /* ========= Triforce sound toggle ========= */
+  .triforce{
+    position: absolute;
+    bottom: clamp(20px, 3vh, 36px);
+    left: clamp(20px, 3vw, 36px);
+    width: clamp(32px, 4.5vw, 40px);
+    height: clamp(32px, 4.5vw, 40px);
+    background: transparent;
+    border: none;
+    padding: 6px;
+    cursor: pointer;
+    z-index: 6;
+    transition: opacity 0.2s, transform 0.15s, filter 0.2s;
+    /* Off (default): filled but reduced opacity */
+    opacity: 0.25;
+  }
+  .triforce:active{ transform: scale(0.9); }
+  .triforce:hover{ opacity: 0.5; }
+  .triforce svg{
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .triforce svg path{
+    fill: var(--amber);
+    stroke: none;
+    transition: fill 0.2s;
+  }
+  /* On: full opacity + glow */
+  .triforce.on{
+    opacity: 1;
+    filter: drop-shadow(0 0 4px rgba(var(--amber-glow), 0.5));
+  }
+
   .fs-prompt{
     position: absolute;
     inset: 0;
@@ -205,6 +239,53 @@
 
   <div class="hint" id="hint">Drag down · up · release to start</div>
 
+  <!-- Triforce sound toggle -->
+  <button class="triforce" id="triforce" aria-label="Toggle sound" aria-pressed="false">
+    <svg viewBox="0 0 24 22" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <!--
+        Three filled triangles with gently rounded corners. Each corner of
+        each triangle is a small Q (quadratic Bézier) curve with the corner
+        point as the control. The "from" and "to" points sit a small
+        distance back along each adjacent edge so the curve smooths the
+        sharp vertex.
+        Coordinates are designed for a 24x22 viewBox with visible gaps
+        between the three triangles.
+      -->
+      <!-- Top triangle: apex (12, 0.5), base (7.0, 9.7) → (17.0, 9.7) -->
+      <path d="
+        M 11.6 1.25
+        Q 12 0.5 12.4 1.25
+        L 16.6 8.95
+        Q 17.0 9.7 16.2 9.7
+        L 7.8 9.7
+        Q 7.0 9.7 7.4 8.95
+        Z
+      " />
+      <!-- Bottom-left triangle: apex (6.4, 10.7), bottom (1.4, 19.7) → (11.4, 19.7) -->
+      <path d="
+        M 6.0 11.45
+        Q 6.4 10.7 6.8 11.45
+        L 11.0 18.95
+        Q 11.4 19.7 10.6 19.7
+        L 2.2 19.7
+        Q 1.4 19.7 1.8 18.95
+        Z
+      " />
+      <!-- Bottom-right triangle: apex (17.6, 10.7), bottom (12.6, 19.7) → (22.6, 19.7) -->
+      <path d="
+        M 17.2 11.45
+        Q 17.6 10.7 18.0 11.45
+        L 22.2 18.95
+        Q 22.6 19.7 21.8 19.7
+        L 13.4 19.7
+        Q 12.6 19.7 13.0 18.95
+        Z
+      " />
+    </svg>
+  </button>
+    </svg>
+  </button>
+
   <div class="fs-prompt" id="fsPrompt">
     <div class="fs-tag">Focus Timer</div>
     <button class="fs-btn" id="fsBtn">Enter</button>
@@ -239,6 +320,34 @@
   const fsBtn = document.getElementById('fsBtn');
   const borderSvg = document.getElementById('borderSvg');
   const borderPath = document.getElementById('borderPath');
+  const triforceBtn = document.getElementById('triforce');
+
+  // Sound preference. Default OFF — the user opts in by tapping the
+  // Triforce. Persisted across sessions so the choice sticks.
+  let soundEnabled = false;
+  try{
+    soundEnabled = localStorage.getItem('focusTimer.sound') === '1';
+  }catch(e){ /* private mode etc. — fall through, sound stays off */ }
+  function applySoundState(){
+    triforceBtn.classList.toggle('on', soundEnabled);
+    triforceBtn.setAttribute('aria-pressed', soundEnabled ? 'true' : 'false');
+  }
+  function toggleSound(){
+    soundEnabled = !soundEnabled;
+    try{ localStorage.setItem('focusTimer.sound', soundEnabled ? '1' : '0'); }catch(e){}
+    applySoundState();
+    // If turning ON, play a brief preview so the user knows what they signed
+    // up for AND we use the gesture to unlock the AudioContext for later.
+    if(soundEnabled){
+      primeAudio();
+      const ctx = ensureAudio();
+      if(ctx){
+        if(ctx.state === 'suspended') ctx.resume().catch(()=>{});
+        // Single short note at C5 — quick "yes, sound is on" confirmation
+        playNote(523.25, ctx.currentTime + 0.02, 0.5, 0.18);
+      }
+    }
+  }
 
   // Helpers to update display in the two formats.
   // Set view: per-digit spans so we can selectively blur the digits that
@@ -585,6 +694,7 @@
   // Notes:  G4   F#4   D#4   A4    G#4   E4    G#4   C5
   // Each note is short except the last, which rings out triumphantly.
   function playFinishChime(){
+    if(!soundEnabled) return;
     const ctx = ensureAudio();
     if(!ctx) return;
     if(ctx.state === 'suspended') ctx.resume().catch(()=>{});
@@ -719,6 +829,14 @@
   }
   fsBtn.addEventListener('click', enterFullscreen);
 
+  // Triforce sound toggle. stopPropagation so taps on the icon don't fall
+  // through to the app-wide pointerdown handler that starts a timer drag.
+  triforceBtn.addEventListener('pointerdown', (e)=>{ e.stopPropagation(); });
+  triforceBtn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    toggleSound();
+  });
+
   // ============ Wire up ============
   app.addEventListener('pointerdown', onPointerDown);
   app.addEventListener('pointermove', onPointerMove);
@@ -741,6 +859,7 @@
   buildBorderPath();
   buildTicks();
   enterIdle();
+  applySoundState();
 
 })();
 </script>
