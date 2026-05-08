@@ -305,12 +305,64 @@
   }
 
   // ============ Border ============
+  // iPhone screen corner radii (in CSS px, equal to pt). Values from
+  // UIScreen._displayCornerRadius via kylebshr/ScreenCorners.
+  // Keyed by "shorter×longer" CSS pixel screen dimensions.
+  //
+  // Caveats inherited from any dimension-based detection:
+  //   - Multiple devices share the same resolution with different radii.
+  //     Where this happens we pick the most common/newer device.
+  //   - Display Zoom mode changes screen.width and will cause misdetection.
+  //   - iOS corners are continuous "squircles", not pure circular arcs;
+  //     we approximate with a squircle path below for a closer visual match.
+  //
+  // Known overlaps:
+  //   375x812 → X/XS/11 Pro (39) AND 12 mini/13 mini (44) — defaulting to 44
+  //   430x932 → 14 Plus (53.33) AND 15/16 Plus, 15/16 Pro Max (55) — defaulting to 55
+  //   428x926 → 12/13 Pro Max, 12/13 Plus → all 53.33, no overlap
+  const IPHONE_CORNER_RADII = {
+    '375x812': 44,     // 13 mini / 12 mini (default; X/XS/11 Pro are 39)
+    '414x896': 41.5,   // XR / 11 (default; XS Max / 11 Pro Max are 39)
+    '390x844': 47.33,  // 12 / 12 Pro / 13 / 13 Pro / 14 / 16e
+    '428x926': 53.33,  // 12 Pro Max / 13 Pro Max
+    '430x932': 55,     // 15/16 Pro Max, 15/16 Plus (default; 14 Plus / 14 Pro Max are 53.33)
+    '393x852': 55,     // 14 Pro / 15 / 15 Pro / 16
+    '402x874': 62,     // 16 Pro
+    '440x956': 62,     // 16 Pro Max / 17 Pro Max
+  };
+
+  function detectIPhoneCornerRadius(){
+    const sw = window.screen.width;
+    const sh = window.screen.height;
+    const [shorter, longer] = sw < sh ? [sw, sh] : [sh, sw];
+    return IPHONE_CORNER_RADII[`${shorter}x${longer}`] || null;
+  }
+
+  function isIPhone(){
+    return /iPhone/.test(navigator.userAgent)
+      || (/Mac/.test(navigator.platform) && navigator.maxTouchPoints > 1
+          && window.screen.width < 500);
+  }
+
   let pathLength = 0;
   function buildBorderPath(){
     const w = window.innerWidth;
     const h = window.innerHeight;
     const inset = Math.max(8, Math.min(w, h) * 0.018);
-    const r = Math.min(w, h) * 0.06;
+
+    // Pick a corner radius:
+    //   Known iPhone screen → use Apple's published bezel radius, minus the
+    //                          inset (the line sits inside the bezel, so
+    //                          its corner radius is smaller to stay
+    //                          concentric with the physical curve).
+    //   Anything else        → proportional fallback (6% of shorter side).
+    let r;
+    const detected = isIPhone() ? detectIPhoneCornerRadius() : null;
+    if(detected !== null){
+      r = Math.max(8, detected - inset);
+    } else {
+      r = Math.min(w, h) * 0.06;
+    }
 
     borderSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
 
