@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+<title>Focus</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@800;900&display=swap');
+
+  :root{
+    --amber: #FFB800;
+    --amber-glow: 255, 184, 0;
+    --bg: #000;
+  }
+
+  *{ box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body{
+    width: 100%;
+    height: 100%;
+    height: 100dvh;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--amber);
+    font-family: 'Nunito', system-ui, sans-serif;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+    touch-action: none;
+  }
+
+  #app{
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: ns-resize;
+  }
+
+  .border-svg{
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    /* Subtle single glow on the border line only */
+    filter: drop-shadow(0 0 6px rgba(var(--amber-glow), 0.45));
+    z-index: 5;
+  }
+  .border-path{
+    fill: none;
+    stroke: var(--amber);
+    stroke-width: 6;
+    stroke-linecap: round;
+  }
+
+  .center{
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .time{
+    font-size: clamp(80px, 22vw, 280px);
+    font-weight: 900;
+    color: var(--amber);
+    letter-spacing: -0.02em;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    display: inline-flex;
+    align-items: baseline;
+  }
+  .time-num{
+    display: inline-flex;
+    align-items: baseline;
+  }
+  .time-digit{
+    display: inline-block;
+    filter: blur(0px);
+    transition: filter 0.25s ease-out;
+    will-change: filter;
+  }
+  .time-digit.blur-1 { filter: blur(2px); }
+  .time-digit.blur-2 { filter: blur(5px); }
+  .time-digit.blur-3 { filter: blur(9px); }
+  .time-unit{
+    display: inline-block;
+    margin-left: 0.25em;
+  }
+
+  .ticks{
+    position: absolute;
+    right: clamp(20px, 4vw, 60px);
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+    z-index: 3;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  .ticks.visible{ opacity: 0.85; }
+  .tick{
+    height: 2px;
+    background: var(--amber);
+    border-radius: 1px;
+    transition: width 0.1s, opacity 0.1s;
+  }
+
+  .hint{
+    position: absolute;
+    bottom: clamp(30px, 5vh, 60px);
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: clamp(11px, 1.5vw, 14px);
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: rgba(var(--amber-glow), 0.3);
+    z-index: 4;
+    transition: opacity 0.4s;
+    pointer-events: none;
+  }
+  .hint.hidden{ opacity: 0; }
+
+  .fs-prompt{
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.92);
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    transition: opacity 0.3s;
+  }
+  .fs-prompt.hidden{ opacity: 0; pointer-events: none; }
+  .fs-btn{
+    padding: 18px 40px;
+    background: transparent;
+    border: 1.5px solid var(--amber);
+    border-radius: 999px;
+    color: var(--amber);
+    font-family: inherit;
+    font-size: 16px;
+    font-weight: 800;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: transform 0.15s, background 0.2s;
+  }
+  .fs-btn:active{ transform: scale(0.96); }
+  .fs-btn:hover{ background: rgba(var(--amber-glow), 0.06); }
+  .fs-tag{
+    font-size: 11px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: rgba(var(--amber-glow), 0.4);
+  }
+
+  .border-svg.done .border-path{
+    animation: pulse-stroke 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse-stroke{
+    0%, 100%{ stroke-opacity: 1; }
+    50%{ stroke-opacity: 0.25; }
+  }
+  .time.done{
+    animation: pulse-time 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse-time{
+    0%, 100%{ opacity: 1; }
+    50%{ opacity: 0.4; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <svg class="border-svg" id="borderSvg" preserveAspectRatio="none">
+    <path class="border-path" id="borderPath" />
+  </svg>
+
+  <div class="ticks" id="ticks"></div>
+
+  <div class="center">
+    <div class="time" id="time"><span class="time-num" id="timeNum">1</span><span class="time-unit" id="timeUnit">min</span></div>
+  </div>
+
+  <div class="hint" id="hint">Drag down · up · release to start</div>
+
+  <div class="fs-prompt" id="fsPrompt">
+    <div class="fs-tag">Focus Timer</div>
+    <button class="fs-btn" id="fsBtn">Enter</button>
+    <div class="fs-tag" style="opacity:.6;">Fullscreen · keep screen awake</div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // Modes:
+  //   IDLE — showing "X min", border full, awaiting user
+  //   RUN  — counting down "M:SS"
+  //   DRAG — transient: user is touching screen, dial showing "X min"
+  //          (could be from IDLE or interrupting a RUN)
+  //   DONE — finished, pulsing
+  const MODE = { IDLE: 'idle', RUN: 'run', DRAG: 'drag', DONE: 'done' };
+  let mode = MODE.IDLE;
+
+  let setMinutes = 1;     // dial value
+  let totalMs = 0;        // active run total
+  let endAt = 0;          // performance.now() endpoint
+  let rafId = null;
+  let wakeLock = null;
+
+  const app = document.getElementById('app');
+  const timeEl = document.getElementById('time');
+  const timeNum = document.getElementById('timeNum');
+  const timeUnit = document.getElementById('timeUnit');
+  const ticksEl = document.getElementById('ticks');
+  const hint = document.getElementById('hint');
+  const fsPrompt = document.getElementById('fsPrompt');
+  const fsBtn = document.getElementById('fsBtn');
+  const borderSvg = document.getElementById('borderSvg');
+  const borderPath = document.getElementById('borderPath');
+
+  // Helpers to update display in the two formats.
+  // Set view: per-digit spans so we can selectively blur the digits that
+  // actually changed since the last frame. The colon and "min" never blur.
+  // Run view: M:SS, also rendered as per-digit spans for visual consistency,
+  // but with no blur applied (it's not user-scrubbed).
+  let lastDigits = ''; // last rendered digit string, e.g. "21" or "21:00"
+
+  function renderDigits(str, applyBlurLevel){
+    // Build/reuse per-digit spans inside timeNum
+    const existing = timeNum.children;
+    const sameStructure = existing.length === str.length
+      && existing.length > 0
+      && existing[0].classList.contains('time-digit');
+    // If structure differs (length changed, or first call), rebuild
+    if(!sameStructure){
+      timeNum.innerHTML = '';
+      for(const ch of str){
+        const span = document.createElement('span');
+        span.className = 'time-digit';
+        span.textContent = ch;
+        timeNum.appendChild(span);
+      }
+      lastDigits = str;
+      // When length changes (e.g. 9 → 10 or 99 → 100), every digit position
+      // is effectively "new" — blur all if a level is requested.
+      if(applyBlurLevel >= 1){
+        for(const span of timeNum.children){
+          span.classList.add(`blur-${Math.min(3, applyBlurLevel)}`);
+        }
+      }
+      return;
+    }
+    // Same length: update only positions whose char differs
+    for(let i = 0; i < str.length; i++){
+      const span = existing[i];
+      const ch = str[i];
+      const prevCh = lastDigits[i];
+      if(span.textContent !== ch){
+        span.textContent = ch;
+      }
+      // Apply or clear blur for THIS digit based on whether it actually changed
+      span.classList.remove('blur-1', 'blur-2', 'blur-3');
+      if(applyBlurLevel >= 1 && ch !== prevCh){
+        span.classList.add(`blur-${Math.min(3, applyBlurLevel)}`);
+      }
+    }
+    lastDigits = str;
+  }
+
+  function clearAllDigitBlurs(){
+    for(const span of timeNum.children){
+      span.classList.remove('blur-1', 'blur-2', 'blur-3');
+    }
+  }
+
+  function showSet(mins, blurLevelForChanged = 0){
+    renderDigits(String(mins), blurLevelForChanged);
+    timeUnit.textContent = 'min';
+  }
+  function showRun(ms){
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    const str = `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
+    renderDigits(str, 0);
+    timeUnit.textContent = '';
+  }
+
+  // ============ Border ============
+  let pathLength = 0;
+  function buildBorderPath(){
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const inset = Math.max(8, Math.min(w, h) * 0.018);
+    const r = Math.min(w, h) * 0.06;
+
+    borderSvg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+
+    const x1 = inset, y1 = inset;
+    const x2 = w - inset, y2 = h - inset;
+    const cx = w / 2;
+    const notchHalf = Math.min(28, w * 0.025);
+
+    // CW from top-center-right to top-center-left.
+    // As "visible" shortens, the END at top-center-left retracts back
+    // along the path → gap grows from top-center going COUNTER-CLOCKWISE
+    // (toward top-left first, then down the left side).
+    const d = [
+      `M ${cx + notchHalf} ${y1}`,
+      `L ${x2 - r} ${y1}`,
+      `Q ${x2} ${y1} ${x2} ${y1 + r}`,
+      `L ${x2} ${y2 - r}`,
+      `Q ${x2} ${y2} ${x2 - r} ${y2}`,
+      `L ${x1 + r} ${y2}`,
+      `Q ${x1} ${y2} ${x1} ${y2 - r}`,
+      `L ${x1} ${y1 + r}`,
+      `Q ${x1} ${y1} ${x1 + r} ${y1}`,
+      `L ${cx - notchHalf} ${y1}`,
+    ].join(' ');
+
+    borderPath.setAttribute('d', d);
+    pathLength = borderPath.getTotalLength();
+    applyCurrentBorder();
+  }
+
+  function setBorderRatio(ratio){
+    const visible = Math.max(0, pathLength * (1 - ratio));
+    borderPath.style.strokeDasharray = `${visible} ${pathLength}`;
+    borderPath.style.strokeDashoffset = '0';
+  }
+
+  function applyCurrentBorder(){
+    if(mode === MODE.RUN){
+      const remaining = Math.max(0, endAt - performance.now());
+      setBorderRatio(totalMs > 0 ? (totalMs - remaining) / totalMs : 0);
+    } else {
+      setBorderRatio(0);
+    }
+  }
+
+  // ============ Ticks ============
+  function buildTicks(){
+    ticksEl.innerHTML = '';
+    const N = 24;
+    for(let i = 0; i < N; i++){
+      const t = document.createElement('div');
+      t.className = 'tick';
+      const isMajor = i % 5 === 0;
+      t.style.width = isMajor ? '16px' : '9px';
+      ticksEl.appendChild(t);
+    }
+  }
+
+  function updateTicksHighlight(){
+    const ratio = Math.min(1, Math.max(0, setMinutes / 120));
+    const ticks = ticksEl.children;
+    const activeCount = Math.round(ratio * ticks.length);
+    // Top of column = low values, bottom = high values.
+    // Active ticks fill from the TOP downward as setMinutes grows.
+    for(let i = 0; i < ticks.length; i++){
+      const isActive = i < activeCount;
+      const isMajor = i % 5 === 0;
+      ticks[i].style.opacity = isActive
+        ? (isMajor ? '1' : '0.7')
+        : (isMajor ? '0.2' : '0.1');
+    }
+  }
+
+  // ============ Modes ============
+  function enterIdle(){
+    if(rafId){ cancelAnimationFrame(rafId); rafId = null; }
+    mode = MODE.IDLE;
+    timeEl.classList.remove('done');
+    borderSvg.classList.remove('done');
+    showSet(setMinutes);
+    ticksEl.classList.add('visible');
+    setBorderRatio(0);
+    updateTicksHighlight();
+    releaseWakeLock();
+  }
+
+  function enterDrag(){
+    if(rafId){ cancelAnimationFrame(rafId); rafId = null; }
+    mode = MODE.DRAG;
+    timeEl.classList.remove('done');
+    borderSvg.classList.remove('done');
+    showSet(setMinutes);
+    ticksEl.classList.add('visible');
+    setBorderRatio(0); // border full while user is choosing
+    updateTicksHighlight();
+  }
+
+  function startRun(){
+    mode = MODE.RUN;
+    totalMs = setMinutes * 60 * 1000;
+    endAt = performance.now() + totalMs;
+    timeEl.classList.remove('done');
+    borderSvg.classList.remove('done');
+    ticksEl.classList.remove('visible');
+    hint.classList.add('hidden');
+    requestWakeLock();
+    tickRun();
+  }
+
+  function tickRun(){
+    if(mode !== MODE.RUN) return;
+    const now = performance.now();
+    const remaining = endAt - now;
+    if(remaining <= 0){
+      showRun(0);
+      setBorderRatio(1);
+      finishRun();
+      return;
+    }
+    showRun(remaining);
+    setBorderRatio((totalMs - remaining) / totalMs);
+    rafId = requestAnimationFrame(tickRun);
+  }
+
+  function finishRun(){
+    mode = MODE.DONE;
+    timeEl.classList.add('done');
+    borderSvg.classList.add('done');
+    try{ if(navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); }catch(e){}
+    releaseWakeLock();
+    setTimeout(()=>{
+      if(mode === MODE.DONE) enterIdle();
+    }, 6000);
+  }
+
+  // ============ Wake Lock ============
+  async function requestWakeLock(){
+    try{
+      if('wakeLock' in navigator){
+        wakeLock = await navigator.wakeLock.request('screen');
+      }
+    }catch(e){}
+  }
+  function releaseWakeLock(){
+    try{ if(wakeLock){ wakeLock.release(); wakeLock = null; } }catch(e){}
+  }
+  document.addEventListener('visibilitychange', ()=>{
+    if(document.visibilityState === 'visible' && mode === MODE.RUN){
+      requestWakeLock();
+    }
+  });
+
+  // ============ Drag interaction ============
+  // pointerdown: enter DRAG mode (regardless of previous mode)
+  // pointermove: adjust setMinutes; apply motion blur scaled to velocity
+  // pointerup: start a fresh run with the current setMinutes
+  let dragStartY = null;
+  let dragStartMinutes = 0;
+  let lastMoveT = 0;
+  let lastMoveY = 0;
+  let blurDecayRaf = null;
+  let currentBlurLevel = 0; // 0..3 — most recently applied level
+
+  // While the user is dragging slowly or pausing, blur should decay back
+  // to 0. This loop clears the blur from any digit that's still wearing
+  // one once movement has been quiet for a beat.
+  function blurDecayLoop(){
+    const now = performance.now();
+    const idle = now - lastMoveT;
+    if(idle > 60 && currentBlurLevel > 0){
+      currentBlurLevel = 0;
+      clearAllDigitBlurs();
+    }
+    if(dragStartY !== null){
+      blurDecayRaf = requestAnimationFrame(blurDecayLoop);
+    } else {
+      blurDecayRaf = null;
+    }
+  }
+
+  function onPointerDown(e){
+    e.preventDefault();
+    if(mode === MODE.DONE) enterIdle();
+    dragStartY = e.clientY;
+    dragStartMinutes = setMinutes;
+    lastMoveY = e.clientY;
+    lastMoveT = performance.now();
+    currentBlurLevel = 0;
+    clearAllDigitBlurs();
+    enterDrag();
+    if(!blurDecayRaf) blurDecayRaf = requestAnimationFrame(blurDecayLoop);
+  }
+
+  function onPointerMove(e){
+    if(dragStartY === null) return;
+    const now = performance.now();
+    const dt = Math.max(1, now - lastMoveT);
+    const dyStep = e.clientY - lastMoveY; // sign doesn't matter for blur (abs below)
+    const velocity = Math.abs(dyStep) / dt; // px per ms
+    lastMoveY = e.clientY;
+    lastMoveT = now;
+
+    // Map velocity → blur level. Tuned so casual movement = 1, fast = 2-3.
+    let level = 0;
+    if(velocity > 0.15) level = 1;
+    if(velocity > 0.6) level = 2;
+    if(velocity > 1.4) level = 3;
+    currentBlurLevel = level;
+
+    const dy = e.clientY - dragStartY; // DOWN = positive (increases minutes)
+    const delta = Math.round(dy / 10);
+    let next = dragStartMinutes + delta;
+    next = Math.max(1, Math.min(120, next));
+    if(next !== setMinutes){
+      setMinutes = next;
+      // showSet will only blur digits whose character actually changed.
+      // If only the ones-digit ticked over (21 → 22), only that span blurs.
+      // If the tens carried (29 → 30), both spans blur.
+      showSet(setMinutes, level);
+      updateTicksHighlight();
+      try{ if(navigator.vibrate) navigator.vibrate(2); }catch(e){}
+    }
+  }
+
+  function onPointerUp(){
+    if(dragStartY === null) return;
+    dragStartY = null;
+    currentBlurLevel = 0;
+    clearAllDigitBlurs(); // settle on release; CSS transition gives the easing
+    if(blurDecayRaf){ cancelAnimationFrame(blurDecayRaf); blurDecayRaf = null; }
+    // On release — always start the timer with the current value.
+    // Whether the user dragged or just tapped, the result is the same:
+    // begin a fresh run from setMinutes. The border depletion is always
+    // proportional to setMinutes, so 50 min vs 1 min animates correctly.
+    startRun();
+  }
+
+  // ============ Fullscreen ============
+  async function enterFullscreen(){
+    try{
+      const el = document.documentElement;
+      if(el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
+      else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+    }catch(e){}
+    fsPrompt.classList.add('hidden');
+    setTimeout(()=> hint.classList.add('hidden'), 5000);
+  }
+  fsBtn.addEventListener('click', enterFullscreen);
+
+  // ============ Wire up ============
+  app.addEventListener('pointerdown', onPointerDown);
+  app.addEventListener('pointermove', onPointerMove);
+  app.addEventListener('pointerup', onPointerUp);
+  app.addEventListener('pointercancel', onPointerUp);
+
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e)=>{
+    const now = Date.now();
+    if(now - lastTouchEnd < 300) e.preventDefault();
+    lastTouchEnd = now;
+  }, { passive: false });
+
+  let resizeTimer = null;
+  window.addEventListener('resize', ()=>{
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(buildBorderPath, 100);
+  });
+
+  buildBorderPath();
+  buildTicks();
+  enterIdle();
+
+})();
+</script>
+</body>
+</html>
