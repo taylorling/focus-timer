@@ -94,6 +94,8 @@
   .time-digit.blur-3 { filter: blur(9px); }
   .time-unit{
     display: inline-block;
+  }
+  .time-unit:not(:empty){
     margin-left: 0.25em;
   }
 
@@ -369,14 +371,13 @@
     const x1 = inset, y1 = inset;
     const x2 = w - inset, y2 = h - inset;
     const cx = w / 2;
-    const notchHalf = Math.min(28, w * 0.025);
 
-    // CW from top-center-right to top-center-left.
-    // As "visible" shortens, the END at top-center-left retracts back
-    // along the path → gap grows from top-center going COUNTER-CLOCKWISE
-    // (toward top-left first, then down the left side).
+    // Path traces the FULL perimeter, starting and ending at top-center.
+    // CW from top-center to top-center (one full loop). As "visible" shortens,
+    // the END at top-center retracts back along the path → gap grows from
+    // top-center going COUNTER-CLOCKWISE.
     const d = [
-      `M ${cx + notchHalf} ${y1}`,
+      `M ${cx} ${y1}`,
       `L ${x2 - r} ${y1}`,
       `Q ${x2} ${y1} ${x2} ${y1 + r}`,
       `L ${x2} ${y2 - r}`,
@@ -385,7 +386,7 @@
       `Q ${x1} ${y2} ${x1} ${y2 - r}`,
       `L ${x1} ${y1 + r}`,
       `Q ${x1} ${y1} ${x1 + r} ${y1}`,
-      `L ${cx - notchHalf} ${y1}`,
+      `L ${cx} ${y1}`,
     ].join(' ');
 
     borderPath.setAttribute('d', d);
@@ -394,7 +395,18 @@
   }
 
   function setBorderRatio(ratio){
-    const visible = Math.max(0, pathLength * (1 - ratio));
+    // ratio: 0 = full perimeter visible, 1 = fully depleted.
+    // The round stroke-linecap draws a half-circle at each end of the dash,
+    // so even with visible-length = 0 we'd see a small dot. Hide the path
+    // once the remaining length is shorter than the stroke width — at that
+    // point the "line" is just two overlapping caps, not a meaningful arc.
+    const STROKE = 6; // matches CSS stroke-width
+    const visible = pathLength * (1 - ratio);
+    if(visible <= STROKE){
+      borderPath.style.display = 'none';
+      return;
+    }
+    borderPath.style.display = '';
     borderPath.style.strokeDasharray = `${visible} ${pathLength}`;
     borderPath.style.strokeDashoffset = '0';
   }
@@ -478,7 +490,6 @@
     const remaining = endAt - now;
     if(remaining <= 0){
       showRun(0);
-      setBorderRatio(1);
       finishRun();
       return;
     }
@@ -489,8 +500,11 @@
 
   function finishRun(){
     mode = MODE.DONE;
+    // Restore full perimeter for the celebratory pulse animation.
+    setBorderRatio(0);
     timeEl.classList.add('done');
     borderSvg.classList.add('done');
+    playFinishChime();
     try{ if(navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 400]); }catch(e){}
     releaseWakeLock();
     setTimeout(()=>{
@@ -514,6 +528,97 @@
       requestWakeLock();
     }
   });
+
+  // ============ Audio (synthesized chime) ============
+  // We build the alarm tone via Web Audio so the file stays a single
+  // self-contained HTML — no sound file shipped. Browsers (especially iOS
+  // Safari) require audio to start from a user gesture, so we lazily create
+  // and resume the AudioContext on the first pointerdown.
+  let audioCtx = null;
+  function ensureAudio(){
+    if(audioCtx) return audioCtx;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if(!Ctx) return null;
+    audioCtx = new Ctx();
+    return audioCtx;
+  }
+  function primeAudio(){
+    // Called from a user gesture. Creates the context (if needed) and
+    // resumes it. iOS keeps the context "suspended" until this happens.
+    const ctx = ensureAudio();
+    if(ctx && ctx.state === 'suspended'){
+      ctx.resume().catch(()=>{});
+    }
+  }
+  // Play a single bell-ish note. Used as the building block for the chime.
+  // We layer the fundamental with two harmonics for a fuller tone, gently
+  // detuned for warmth, shaped with a fast attack and long exponential decay.
+  function playNote(freq, start, dur, gain = 0.18){
+    const ctx = audioCtx;
+    if(!ctx) return;
+    const partials = [
+      { mult: 1.0,  level: 1.0,  detune: 0  },
+      { mult: 2.0,  level: 0.40, detune: 4  },
+      { mult: 3.0,  level: 0.15, detune: -2 },
+    ];
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0, start);
+    master.gain.linearRampToValueAtTime(gain, start + 0.012);
+    master.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    master.connect(ctx.destination);
+    for(const p of partials){
+      const osc = ctx.createOscillator();
+      osc.type = 'triangle'; // triangle has a touch more body than pure sine,
+                             // closer to the chiptune-y Zelda chime feel
+      osc.frequency.value = freq * p.mult;
+      osc.detune.value = p.detune;
+      const partialGain = ctx.createGain();
+      partialGain.gain.value = p.level;
+      osc.connect(partialGain).connect(master);
+      osc.start(start);
+      osc.stop(start + dur + 0.05);
+    }
+  }
+
+  // The Zelda "Secret" jingle — the eight-note discovery melody from
+  // A Link to the Past / Ocarina of Time, played when you uncover something.
+  // Notes:  G4   F#4   D#4   A4    G#4   E4    G#4   C5
+  // Each note is short except the last, which rings out triumphantly.
+  function playFinishChime(){
+    const ctx = ensureAudio();
+    if(!ctx) return;
+    if(ctx.state === 'suspended') ctx.resume().catch(()=>{});
+
+    // Frequencies (equal temperament, A4=440)
+    const G4  = 392.00;
+    const Fs4 = 369.99;
+    const Ds4 = 311.13;
+    const A4  = 440.00;
+    const Gs4 = 415.30;
+    const E4  = 329.63;
+    const C5  = 523.25;
+
+    // [frequency, beat-offset, duration]. One "beat" ≈ 0.13s — fast, sprightly.
+    const beat = 0.13;
+    const sequence = [
+      [G4,  0,  beat * 1.0],
+      [Fs4, 1,  beat * 1.0],
+      [Ds4, 2,  beat * 1.0],
+      [A4,  3,  beat * 1.0],
+      [Gs4, 4,  beat * 1.0],
+      [E4,  5,  beat * 1.0],
+      [Gs4, 6,  beat * 1.0],
+      [C5,  7,  beat * 6.0], // long final note, rings out
+    ];
+
+    const t0 = ctx.currentTime + 0.02;
+    for(const [freq, offsetBeats, dur] of sequence){
+      const start = t0 + offsetBeats * beat;
+      // Last note slightly louder to give it "arrival" weight
+      const gain = (freq === C5) ? 0.22 : 0.18;
+      playNote(freq, start, dur, gain);
+    }
+  }
 
   // ============ Drag interaction ============
   // pointerdown: enter DRAG mode (regardless of previous mode)
@@ -545,6 +650,7 @@
 
   function onPointerDown(e){
     e.preventDefault();
+    primeAudio(); // unlock audio on first user gesture (required by iOS)
     if(mode === MODE.DONE) enterIdle();
     dragStartY = e.clientY;
     dragStartMinutes = setMinutes;
@@ -602,6 +708,7 @@
 
   // ============ Fullscreen ============
   async function enterFullscreen(){
+    primeAudio(); // unlock audio while we have a user gesture
     try{
       const el = document.documentElement;
       if(el.requestFullscreen) await el.requestFullscreen({ navigationUI: 'hide' });
